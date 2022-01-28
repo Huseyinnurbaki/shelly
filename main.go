@@ -141,7 +141,6 @@ func broadcastHandler(content string) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Print(content)
 	apichannel := make(chan string)
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -152,7 +151,6 @@ func broadcastHandler(content string) {
 		ip := strings.Replace(fields[1], "(", "", -1)
 		ip = strings.Replace(ip, ")", "", -1)
 		url := "http://" + ip +":3998/receipt?content=" + content
-		print(url)
 
 		wg.Add(1)
 		go MakeRequest(url, apichannel, &wg)
@@ -165,7 +163,6 @@ func broadcastHandler(content string) {
 }
 
 func MakeRequest(url string, ch chan<- string, wg *sync.WaitGroup) {
-	print(url)
 	start := time.Now()
 	resp, err := http.Get(url)
 
