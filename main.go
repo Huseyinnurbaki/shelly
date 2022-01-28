@@ -1,14 +1,15 @@
 package main
 
-
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -85,6 +86,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyEnter:
 			m.results = append(m.results[1:], message{content: m.textInput.Value(), sender: "me"})
+			broadcastHandler(m.textInput.Value())
 			m.textInput.Reset()
 			return m, cmd
 		}
@@ -133,16 +135,48 @@ func (m model) View() string {
 
 
 func broadcastHandler(content string) {
-	host, _ := os.Hostname()
-	addrs, _ := net.LookupIP(host)
-	for _, addr := range addrs {
-   		if ipv4 := addr.To4(); ipv4 != nil {
-        	fmt.Println("IPv4: ", ipv4)
-    	}   
+	var wg sync.WaitGroup
+
+	data, err := exec.Command("arp", "-a").Output()
+	if err != nil {
+		panic(err)
 	}
+	fmt.Print(content)
+	apichannel := make(chan string)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+
+		ip := strings.Replace(fields[1], "(", "", -1)
+		ip = strings.Replace(ip, ")", "", -1)
+		url := "http://" + ip +":3998/receipt?content=" + content
+		print(url)
+
+		wg.Add(1)
+		go MakeRequest(url, apichannel, &wg)
+
+	}
+	go func() {
+			wg.Wait()
+			close(apichannel)
+		}()
 }
 
+func MakeRequest(url string, ch chan<- string, wg *sync.WaitGroup) {
+	print(url)
+	start := time.Now()
+	resp, err := http.Get(url)
 
+	if err == nil {
+		secs := time.Since(start).Seconds()
+		body, _ := ioutil.ReadAll(resp.Body)
+
+		ch <- fmt.Sprintf("%.2f elapsed with response length: %d %s", secs, len(body), url)
+	}
+	defer wg.Done()
+}
 
 
 func main() {
@@ -153,14 +187,14 @@ func main() {
 
 
 	go func() {
-		http.HandleFunc("/recieve", func(w http.ResponseWriter, r *http.Request) {
+		http.HandleFunc("/receipt", func(w http.ResponseWriter, r *http.Request) {
 		content := r.URL.Query().Get("content")
 		// fmt.Println("content =>", content)
 		prog.Send(message{content: content, sender: "them"})
 	})
 
-	fmt.Printf("Starting server at port 8080\n")
-    if err := http.ListenAndServe(":8080", nil); err != nil {
+	fmt.Printf("Starting server at port 3998\n")
+    if err := http.ListenAndServe(":3998", nil); err != nil {
         log.Fatal(err)
     }
 		
